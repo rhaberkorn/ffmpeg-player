@@ -74,6 +74,9 @@ resizePlayer(ffmpegPlayer *me)
 	/*
 	int film_w, film_h;
 	*/
+	/* resizePlayer may be called before any size allocation */
+	int surf_w = FLOOR_THREE(AGWIDGET(me)->w > 0 ? AGWIDGET(me)->w : me->w);
+	int surf_h = FLOOR_THREE(AGWIDGET(me)->h > 0 ? AGWIDGET(me)->h : me->h);
 
 	if (me->surface_id != -1)
 		AG_WidgetUnmapSurface(AGWIDGET(me), me->surface_id);
@@ -88,8 +91,7 @@ resizePlayer(ffmpegPlayer *me)
 	*/
 
 #if 0
-	me->frame->overlay = SDL_CreateYUVOverlay(FLOOR_THREE(AGWIDGET(me)->w),
-						  FLOOR_THREE(AGWIDGET(me)->h),
+	me->frame->overlay = SDL_CreateYUVOverlay(surf_w, surf_h,
 						  SDL_YUY2_OVERLAY, me->screen);
 	if (me->frame->overlay == NULL)
 		/* FIXME */
@@ -98,9 +100,7 @@ resizePlayer(ffmpegPlayer *me)
 #endif
 
 	me->frame->surface = SDL_CreateRGBSurface(SDL_HWSURFACE,
-						  FLOOR_THREE(AGWIDGET(me)->w),
-						  FLOOR_THREE(AGWIDGET(me)->h),
-						  24,
+						  surf_w, surf_h, 24,
 						  0x0000FF, 0x00FF00, 0xFF0000, 0);
 	if (me->frame->surface == NULL)
 		/* FIXME */
@@ -326,9 +326,6 @@ SizeAllocate(void *obj, const AG_SizeAlloc *a)
 {
 	ffmpegPlayer *me = obj;
 
-	AGWIDGET(me)->w = a->w;
-	AGWIDGET(me)->h = a->h;
- 
 	return resizePlayer(me);
 }
 
