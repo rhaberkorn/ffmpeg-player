@@ -24,6 +24,7 @@ typedef struct ffmpeg_player {
 
 #define FFMPEGPLAYER_BUFSIZE 10
 	SDL_ffmpegAudioFrame *audioFrame[FFMPEGPLAYER_BUFSIZE];
+	int curAudioFrame;
 	AG_Thread audio_fillThread;
 	AG_Cond audio_cond;
 

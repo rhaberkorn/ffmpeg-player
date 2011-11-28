@@ -137,7 +137,7 @@ audioCallback(void *data, Uint8 *stream, int length)
 	/* lock mutex, so audioFrame[0] will not be changed from another thread */
 	AG_ObjectLock(me);
 
-	frame = me->audioFrame[0];
+	frame = me->audioFrame[me->curAudioFrame];
 	if (frame->size == length) {
 		/* update sync */
 		me->sync = frame->pts;
@@ -148,10 +148,7 @@ audioCallback(void *data, Uint8 *stream, int length)
 		/* mark data as used */
 		frame->size = 0;
 
-		/* move frames in buffer */
-		for (int i = 1; i < FFMPEGPLAYER_BUFSIZE; i++)
-			me->audioFrame[i-1] = me->audioFrame[i];
-		me->audioFrame[FFMPEGPLAYER_BUFSIZE-1] = frame;
+		me->curAudioFrame = (me->curAudioFrame + 1) % FFMPEGPLAYER_BUFSIZE;
 
 		/* wake up buffer-fill thread */
 		AG_CondSignal(&me->audio_cond);
@@ -177,7 +174,9 @@ fillAudioBufferThread(void *data)
 			break;
 
 		/* fill empty spaces in audio buffer */
-		for (int i = 0; i < FFMPEGPLAYER_BUFSIZE; i++) {
+		for (int i = (me->curAudioFrame + 1) % FFMPEGPLAYER_BUFSIZE;
+		     i != me->curAudioFrame;
+		     i = (i + 1) % FFMPEGPLAYER_BUFSIZE) {
 			/* protect against spurious wakeups */
 			if (me->audioFrame[i] == NULL)
 				break;
@@ -233,6 +232,7 @@ initPlayerAudio(ffmpegPlayer *me)
 		/* fill frame with data */
 		SDL_ffmpegGetAudioFrame(me->file, me->audioFrame[i]);
 	}
+	me->curAudioFrame = 0;
 
 	return 0;
 }
@@ -348,6 +348,7 @@ Init(void *obj)
 	me->surface_id = -1;
 
 	memset(me->audioFrame, 0, sizeof(me->audioFrame));
+	me->curAudioFrame = 0;
 	AG_CondInit(&me->audio_cond);
 	if (AG_ThreadCreate(&me->audio_fillThread, fillAudioBufferThread, me))
 		/* FIXME */
