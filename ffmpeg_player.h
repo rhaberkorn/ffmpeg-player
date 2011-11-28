@@ -36,6 +36,11 @@ __BEGIN_DECLS
 
 extern AG_WidgetClass ffmpegPlayerClass;
 
+#define AG_FFMPEGPLAYER_HFILL		(1 << 0)
+#define AG_FFMPEGPLAYER_VFILL		(1 << 1)
+#define AG_FFMPEGPLAYER_EXPAND		(AG_FFMPEGPLAYER_HFILL | AG_FFMPEGPLAYER_VFILL)
+#define AG_FFMPEGPLAYER_KEEPRATIO	(1 << 2)
+
 ffmpegPlayer *ffmpegPlayerNew(void *parent, int w, int h, int flags,
 			      SDL_Surface *screen);
 int ffmpegPlayerLoad(ffmpegPlayer *me, const char *path);

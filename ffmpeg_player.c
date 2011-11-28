@@ -62,6 +62,11 @@ ffmpegPlayerNew(void *parent, int w, int h, int flags, SDL_Surface *screen)
 	me->flags = flags;
 	me->screen = screen;
 
+	if (flags & AG_FFMPEGPLAYER_HFILL)
+		AGWIDGET(me)->flags |= AG_WIDGET_HFILL;
+	if (flags & AG_FFMPEGPLAYER_VFILL)
+		AGWIDGET(me)->flags |= AG_WIDGET_VFILL;
+
 	/* Attach the object to the parent (no-op if parent is NULL) */
 	AG_ObjectAttach(parent, me);
 
@@ -333,12 +338,6 @@ static void
 Init(void *obj)
 {
 	ffmpegPlayer *me = obj;
-
-#if 0
-	AGWIDGET(me)->flags |= AG_WIDGET_FOCUSABLE;
-	AGWIDGET(me)->flags |= AG_WIDGET_EXPAND;
-	AGWIDGET(me)->flags |= AG_WIDGET_UNFOCUSED_MOTION;
-#endif
 
 	me->w = 0;
 	me->h = 0;

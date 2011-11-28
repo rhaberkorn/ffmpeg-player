@@ -51,7 +51,7 @@ main(int argc, char *argv[])
 	win = AG_WindowNew(0);
 	AG_LabelNew(win, 0, "Hello, world!");
 
-	player = ffmpegPlayerNew(win, 320, 240, 0, screen);
+	player = ffmpegPlayerNew(win, 320, 240, AG_FFMPEGPLAYER_EXPAND, screen);
 	if (!player)
 		goto fail;
 
