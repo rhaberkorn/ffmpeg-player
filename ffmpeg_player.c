@@ -3,6 +3,7 @@
 #include <string.h>
 #include <assert.h>
 #include <stdio.h>
+#include <arpa/inet.h>
 
 #include <agar/core.h>
 #include <agar/gui.h>
@@ -115,7 +116,9 @@ resizePlayer(ffmpegPlayer *me)
 
 	me->frame->surface = SDL_CreateRGBSurface(SDL_HWSURFACE,
 						  surf_w, surf_h, 24,
-						  0x0000FF, 0x00FF00, 0xFF0000, 0);
+						  htonl(0xFF000000),
+						  htonl(0x00FF0000),
+						  htonl(0x0000FF00), 0);
 	if (me->frame->surface == NULL)
 		/* FIXME */
 		return -1;
