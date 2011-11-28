@@ -14,6 +14,15 @@
 
 #include "ffmpeg_player.h"
 
+#ifdef SDEBUG
+#define DEBUG(FMT, ...)	do {				\
+	fprintf(stderr, "%s(%d): " FMT "\n",		\
+		__FUNCTION__, __LINE__, ##__VA_ARGS__);	\
+} while (0)
+#else
+#define DEBUG(FMT, ...) do {} while(0)
+#endif
+
 #define FLOOR_THREE(X) ((X) & ~03)
 
 AG_Surface *AG_SDL_ShadowSurface(SDL_Surface *ss); /* in ag_sdl_aux.c */
@@ -138,6 +147,10 @@ audioCallback(void *data, Uint8 *stream, int length)
 	AG_ObjectLock(me);
 
 	frame = me->audioFrame[me->curAudioFrame];
+
+	if (!frame->size)
+		DEBUG("Audio buffer underrun!");
+
 	if (frame->size == length) {
 		/* update sync */
 		me->sync = frame->pts;
