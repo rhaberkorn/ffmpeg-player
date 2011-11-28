@@ -86,9 +86,6 @@ ffmpegPlayerNew(void *parent, int w, int h, int flags, SDL_Surface *screen)
 static int
 resizePlayer(ffmpegPlayer *me)
 {
-	/*
-	int film_w, film_h;
-	*/
 	/* resizePlayer may be called before any size allocation */
 	int surf_w = FLOOR_THREE(AGWIDGET(me)->w > 0 ? AGWIDGET(me)->w : me->w);
 	int surf_h = FLOOR_THREE(AGWIDGET(me)->h > 0 ? AGWIDGET(me)->h : me->h);
@@ -101,9 +98,15 @@ resizePlayer(ffmpegPlayer *me)
 	if (me->frame->overlay != NULL)
 		SDL_FreeYUVOverlay(me->frame->overlay);
 
-	/*
-	SDL_ffmpegGetVideoSize(me->file, &film_w, &film_h);
-	*/
+	if (me->flags & AG_FFMPEGPLAYER_KEEPRATIO) {
+		/* FIXME */
+		int film_w, film_h;
+		float aspect;
+
+		SDL_ffmpegGetVideoSize(me->file, &film_w, &film_h);
+		aspect = (float)film_h / film_w;
+		surf_h = surf_w * aspect;
+	}
 
 #if 0
 	me->frame->overlay = SDL_CreateYUVOverlay(surf_w, surf_h,
@@ -446,11 +449,13 @@ Draw(void *p)
 		};
 		SDL_DisplayYUVOverlay(me->frame->overlay, &rect);
 	} else if (me->frame->surface != NULL) {
+		int y = (AGWIDGET(me)->h - me->frame->surface->h) / 2;
+
 #ifdef USE_SDL_SHADOWSURFACE
-		AG_WidgetBlitSurface(AGWIDGET(me), me->surface_id, 0, 0);
+		AG_WidgetBlitSurface(AGWIDGET(me), me->surface_id, 0, y);
 #else
 		if (me->surface != NULL)
-			AG_WidgetBlit(AGWIDGET(me), me->surface, 0, 0);
+			AG_WidgetBlit(AGWIDGET(me), me->surface, 0, y);
 #endif
 	}
 }
