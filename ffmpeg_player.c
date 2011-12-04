@@ -451,6 +451,16 @@ Draw(void *p)
 	} else if (me->frame->surface != NULL) {
 		int y = (AGWIDGET(me)->h - me->frame->surface->h) / 2;
 
+		if (y > 0) {
+			AG_Rect rect = {
+				.x = 0,
+				.y = 0,
+				.w = AGWIDGET(me)->w,
+				.h = AGWIDGET(me)->h
+			};
+			AG_DrawRectFilled(AGWIDGET(me), rect, AG_ColorRGB(0, 0, 0));
+		}
+
 #ifdef USE_SDL_SHADOWSURFACE
 		AG_WidgetBlitSurface(AGWIDGET(me), me->surface_id, 0, y);
 #else
