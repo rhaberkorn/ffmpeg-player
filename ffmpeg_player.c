@@ -110,17 +110,18 @@ resizePlayer(ffmpegPlayer *me)
 		surf_h = surf_w * aspect;
 	}
 
-#if 0
+#if 1
 	me->frame->overlay = SDL_CreateYUVOverlay(surf_w, surf_h,
 						  SDL_YUY2_OVERLAY, me->screen);
 	if (me->frame->overlay == NULL)
 		/* FIXME */
 		return -1;
-	printf("overflay: %d\n", me->frame->overlay->hw_overlay);
-#endif
+	DEBUG("overlay: %s",
+	      me->frame->overlay->hw_overlay ? "hardware" : "software");
+#else
 
 	me->frame->surface = SDL_CreateRGBSurface(SDL_HWSURFACE,
-						  surf_w, surf_h, 24,
+						  surf_w, surf_h, 32,
 						  htonl(0xFF000000),
 						  htonl(0x00FF0000),
 						  htonl(0x0000FF00), 0);
@@ -140,6 +141,8 @@ resizePlayer(ffmpegPlayer *me)
 		return -1;
 #else
 	me->surface = NULL;
+#endif
+
 #endif
 
 	return 0;
@@ -181,7 +184,15 @@ drawVideoThread(void *data)
 				continue;
 
 			if (me->frame->overlay != NULL) {
-				/* FIXME */
+				int frame_y = (AGWIDGET(me)->h - me->frame->overlay->h) / 2;
+
+				SDL_Rect rect = {
+					.x = AGWIDGET(me)->rView.x1,
+					.y = AGWIDGET(me)->rView.y1 + frame_y,
+					.w = me->frame->overlay->w,
+					.h = me->frame->overlay->h
+				};
+				SDL_DisplayYUVOverlay(me->frame->overlay, &rect);
 			} else if (me->frame->surface != NULL) {
 #ifdef USE_SDL_SHADOWSURFACE
 				AG_WidgetUpdateSurface(AGWIDGET(me), me->surface_id);
@@ -190,9 +201,9 @@ drawVideoThread(void *data)
 					AG_SurfaceFree(me->surface);
 				me->surface = AG_SurfaceFromSDL(me->frame->surface);
 #endif
-			}
 
-			AG_Redraw(AGWIDGET(me));
+				AG_Redraw(AGWIDGET(me));
+			}
 		}
 		/* else: frame is skipped */
 
@@ -493,37 +504,31 @@ static void
 Draw(void *p)
 {
 	ffmpegPlayer *me = p;
+	int frame_y;
 
 	if (me->file == NULL || me->frame == NULL)
 		return;
 
-	if (me->frame->overlay != NULL) {
-		/* FIXME */
-		SDL_Rect rect = {
-			.x = AGWIDGET(me)->rView.x1,
-			.y = AGWIDGET(me)->rView.y1,
+	frame_y = (AGWIDGET(me)->h - (me->frame->overlay ? me->frame->overlay->h
+							 : me->frame->surface->h)) / 2;
+	if (frame_y > 0) {
+		AG_Rect rect = {
+			.x = 0,
+			.y = 0,
 			.w = AGWIDGET(me)->w,
 			.h = AGWIDGET(me)->h
 		};
-		SDL_DisplayYUVOverlay(me->frame->overlay, &rect);
+		AG_DrawRectFilled(AGWIDGET(me), rect, AG_ColorRGB(0, 0, 0));
+	}
+
+	if (me->frame->overlay != NULL) {
+		/* overlay is displayed in drawVideoThread */
 	} else if (me->frame->surface != NULL) {
-		int y = (AGWIDGET(me)->h - me->frame->surface->h) / 2;
-
-		if (y > 0) {
-			AG_Rect rect = {
-				.x = 0,
-				.y = 0,
-				.w = AGWIDGET(me)->w,
-				.h = AGWIDGET(me)->h
-			};
-			AG_DrawRectFilled(AGWIDGET(me), rect, AG_ColorRGB(0, 0, 0));
-		}
-
 #ifdef USE_SDL_SHADOWSURFACE
-		AG_WidgetBlitSurface(AGWIDGET(me), me->surface_id, 0, y);
+		AG_WidgetBlitSurface(AGWIDGET(me), me->surface_id, 0, frame_y);
 #else
 		if (me->surface != NULL)
-			AG_WidgetBlit(AGWIDGET(me), me->surface, 0, y);
+			AG_WidgetBlit(AGWIDGET(me), me->surface, 0, frame_y);
 #endif
 	}
 }
