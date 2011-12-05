@@ -4,6 +4,8 @@
 #include <assert.h>
 #include <stdio.h>
 #include <arpa/inet.h>
+#include <sys/time.h>
+#include <errno.h>
 
 #include <agar/core.h>
 #include <agar/gui.h>
@@ -143,6 +145,64 @@ resizePlayer(ffmpegPlayer *me)
 	return 0;
 }
 
+static void *
+drawVideoThread(void *data)
+{
+	ffmpegPlayer *me = data;
+	int rc;
+
+	AG_ObjectLock(me);
+
+	for (;;) {
+		while (!me->frame->ready)
+			SDL_ffmpegGetVideoFrame(me->file, me->frame);
+
+		uint64_t sync = getSync(me);
+
+		if (me->frame->pts > sync) {
+			struct timeval now;		/* usec: microseconds */
+			struct timespec timeout;	/* nsec: nanoseconds */
+
+			gettimeofday(&now, NULL);
+			timeout.tv_nsec = now.tv_usec*1000 + (me->frame->pts - sync)*1000000;
+			timeout.tv_sec = now.tv_sec + (timeout.tv_nsec / 1000000000);
+			timeout.tv_nsec %= 1000000000;
+
+			rc = AG_CondTimedWait(&me->video_cond, &AGOBJECT(me)->lock, &timeout);
+			if (rc == 0) {
+				/* FIXME */
+				break;
+			} else if (rc != ETIMEDOUT && rc != EINTR) {
+				/* FIXME */
+				break;
+			}
+
+			if (me->frame->pts > getSync(me))
+				continue;
+
+			if (me->frame->overlay != NULL) {
+				/* FIXME */
+			} else if (me->frame->surface != NULL) {
+#ifdef USE_SDL_SHADOWSURFACE
+				AG_WidgetUpdateSurface(AGWIDGET(me), me->surface_id);
+#else
+				if (me->surface != NULL)
+					AG_SurfaceFree(me->surface);
+				me->surface = AG_SurfaceFromSDL(me->frame->surface);
+#endif
+			}
+
+			AG_Redraw(AGWIDGET(me));
+		}
+		/* else: frame is skipped */
+
+		me->frame->ready = 0;
+	}
+
+	AG_ObjectUnlock(me);
+	return NULL;
+}
+
 static void
 audioCallback(void *data, Uint8 *stream, int length)
 {
@@ -168,13 +228,13 @@ audioCallback(void *data, Uint8 *stream, int length)
 		frame->size = 0;
 
 		me->curAudioFrame = (me->curAudioFrame + 1) % FFMPEGPLAYER_BUFSIZE;
-
-		/* wake up buffer-fill thread */
-		AG_CondSignal(&me->audio_cond);
 	} else {
 		/* no data available, just set output to zero */
 		memset(stream, 0, length);
 	}
+
+	/* wake up buffer-fill thread */
+	AG_CondSignal(&me->audio_cond);
 
 	/* were done with the audio frame, release lock */
 	AG_ObjectUnlock(me);
@@ -187,14 +247,19 @@ fillAudioBufferThread(void *data)
 
 	AG_ObjectLock(me);
 
+	/* NOTE: AG_CondWait shouldn't return error codes */
 	while (!AG_CondWait(&me->audio_cond, &AGOBJECT(me)->lock)) {
+		int lastFrame = me->curAudioFrame > 0
+			      ? (me->curAudioFrame-1) % FFMPEGPLAYER_BUFSIZE
+			      : FFMPEGPLAYER_BUFSIZE-1;
+
 		if (me->file == NULL)
 			/* gracious shutdown */
 			break;
 
 		/* fill empty spaces in audio buffer */
-		for (int i = (me->curAudioFrame + 1) % FFMPEGPLAYER_BUFSIZE;
-		     i != me->curAudioFrame;
+		for (int i = me->curAudioFrame;
+		     i != lastFrame;
 		     i = (i + 1) % FFMPEGPLAYER_BUFSIZE) {
 			/* protect against spurious wakeups */
 			if (me->audioFrame[i] == NULL)
@@ -261,8 +326,13 @@ ffmpegPlayerLoad(ffmpegPlayer *me, const char *path)
 {
 	AG_ObjectLock(me);
 
-	if (me->file)
+	if (me->file) {
 		SDL_ffmpegFree(me->file);
+		
+		/* shut down video draw thread */
+		AG_CondSignal(&me->video_cond);
+		AG_ThreadJoin(me->video_drawThread, NULL);
+	}
 
 	me->file = SDL_ffmpegOpen(path);
 	if (me->file == NULL) {
@@ -288,8 +358,9 @@ ffmpegPlayerLoad(ffmpegPlayer *me, const char *path)
 		return -1;
 	}
 
-	/* for the time being, redraw even when paused */
-	AG_RedrawOnTick(AGWIDGET(me), 10);
+	if (AG_ThreadCreate(&me->video_drawThread, drawVideoThread, me))
+		/* FIXME */
+		return -1;
 
 	AG_ObjectUnlock(me);
 	return 0;
@@ -378,6 +449,7 @@ Init(void *obj)
 	if (me->frame == NULL)
 		/* FIXME */
 		return;
+	AG_CondInit(&me->video_cond);
 
 	me->playing = 0;
 	me->sync = 0;
@@ -399,6 +471,11 @@ Destroy(void *obj)
 	if (me->file) {
 		SDL_ffmpegFree(me->file);
 		me->file = NULL;
+
+		/* shut down video draw thread */
+		AG_CondSignal(&me->video_cond);
+		AG_ThreadJoin(me->video_drawThread, NULL);
+		AG_CondDestroy(&me->video_cond);
 	}
 
 	/* shut down audio fill thread: it watches for me->file == NULL */
@@ -420,27 +497,8 @@ Draw(void *p)
 	if (me->file == NULL || me->frame == NULL)
 		return;
 
-	if (!me->frame->ready)
-		SDL_ffmpegGetVideoFrame(me->file, me->frame);
-
-	if (me->frame->ready &&
-	    me->frame->pts <= getSync(me)) {
-		if (me->frame->overlay != NULL) {
-			/* FIXME */
-		} else if (me->frame->surface != NULL) {
-#ifdef USE_SDL_SHADOWSURFACE
-			AG_WidgetUpdateSurface(AGWIDGET(me), me->surface_id);
-#else
-			if (me->surface != NULL)
-				AG_SurfaceFree(me->surface);
-			me->surface = AG_SurfaceFromSDL(me->frame->surface);
-#endif
-		}
-
-		me->frame->ready = 0;
-	}
-
 	if (me->frame->overlay != NULL) {
+		/* FIXME */
 		SDL_Rect rect = {
 			.x = AGWIDGET(me)->rView.x1,
 			.y = AGWIDGET(me)->rView.y1,
