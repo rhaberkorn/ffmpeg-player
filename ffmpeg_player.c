@@ -89,8 +89,9 @@ static int
 resizePlayer(ffmpegPlayer *me)
 {
 	/* resizePlayer may be called before any size allocation */
-	int surf_w = FLOOR_THREE(AGWIDGET(me)->w > 0 ? AGWIDGET(me)->w : me->w);
-	int surf_h = FLOOR_THREE(AGWIDGET(me)->h > 0 ? AGWIDGET(me)->h : me->h);
+	int widget_w = AGWIDGET(me)->w > 0 ? AGWIDGET(me)->w : me->w;
+	int widget_h = AGWIDGET(me)->h > 0 ? AGWIDGET(me)->h : me->h;
+	int surf_w, surf_h;
 
 	if (me->surface_id != -1)
 		AG_WidgetUnmapSurface(AGWIDGET(me), me->surface_id);
@@ -101,13 +102,22 @@ resizePlayer(ffmpegPlayer *me)
 		SDL_FreeYUVOverlay(me->frame->overlay);
 
 	if (me->flags & AG_FFMPEGPLAYER_KEEPRATIO) {
-		/* FIXME */
 		int film_w, film_h;
 		float aspect;
 
 		SDL_ffmpegGetVideoSize(me->file, &film_w, &film_h);
 		aspect = (float)film_h / film_w;
-		surf_h = surf_w * aspect;
+
+		if (widget_w * aspect > widget_h) {
+			surf_w = FLOOR_THREE((int)(widget_h / aspect));
+			surf_h = FLOOR_THREE(widget_h);
+		} else {
+			surf_w = FLOOR_THREE(widget_w);
+			surf_h = FLOOR_THREE((int)(widget_w * aspect));
+		}
+	} else {
+		surf_w = FLOOR_THREE(widget_w);
+		surf_h = FLOOR_THREE(widget_h);
 	}
 
 #if 1
@@ -184,10 +194,11 @@ drawVideoThread(void *data)
 				continue;
 
 			if (me->frame->overlay != NULL) {
+				int frame_x = (AGWIDGET(me)->w - me->frame->overlay->w) / 2;
 				int frame_y = (AGWIDGET(me)->h - me->frame->overlay->h) / 2;
 
 				SDL_Rect rect = {
-					.x = AGWIDGET(me)->rView.x1,
+					.x = AGWIDGET(me)->rView.x1 + frame_x,
 					.y = AGWIDGET(me)->rView.y1 + frame_y,
 					.w = me->frame->overlay->w,
 					.h = me->frame->overlay->h
@@ -504,14 +515,22 @@ static void
 Draw(void *p)
 {
 	ffmpegPlayer *me = p;
-	int frame_y;
+	int frame_x, frame_y;
 
 	if (me->file == NULL || me->frame == NULL)
 		return;
 
-	frame_y = (AGWIDGET(me)->h - (me->frame->overlay ? me->frame->overlay->h
-							 : me->frame->surface->h)) / 2;
-	if (frame_y > 0) {
+	if (me->frame->overlay != NULL) {
+		frame_x = (AGWIDGET(me)->w - me->frame->overlay->w) / 2;
+		frame_y = (AGWIDGET(me)->h - me->frame->overlay->h) / 2;
+	} else if (me->frame->surface != NULL) {
+		frame_x = (AGWIDGET(me)->w - me->frame->surface->w) / 2;
+		frame_y = (AGWIDGET(me)->h - me->frame->surface->h) / 2;
+	} else {
+		return;
+	}
+
+	if (frame_x || frame_y) {
 		AG_Rect rect = {
 			.x = 0,
 			.y = 0,
@@ -525,10 +544,12 @@ Draw(void *p)
 		/* overlay is displayed in drawVideoThread */
 	} else if (me->frame->surface != NULL) {
 #ifdef USE_SDL_SHADOWSURFACE
-		AG_WidgetBlitSurface(AGWIDGET(me), me->surface_id, 0, frame_y);
+		AG_WidgetBlitSurface(AGWIDGET(me), me->surface_id,
+				     frame_x, frame_y);
 #else
 		if (me->surface != NULL)
-			AG_WidgetBlit(AGWIDGET(me), me->surface, 0, frame_y);
+			AG_WidgetBlit(AGWIDGET(me), me->surface,
+				      frame_x, frame_y);
 #endif
 	}
 }
