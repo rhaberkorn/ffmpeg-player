@@ -120,7 +120,8 @@ resizePlayer(ffmpegPlayer *me)
 		surf_h = FLOOR_THREE(widget_h);
 	}
 
-#if 1
+	/* FIXME: choose surface type depending on movie stream */
+#ifdef USE_OVERLAY
 	me->frame->overlay = SDL_CreateYUVOverlay(surf_w, surf_h,
 						  SDL_YUY2_OVERLAY, me->screen);
 	if (me->frame->overlay == NULL)
@@ -131,10 +132,10 @@ resizePlayer(ffmpegPlayer *me)
 #else
 
 	me->frame->surface = SDL_CreateRGBSurface(SDL_HWSURFACE,
-						  surf_w, surf_h, 32,
+						  surf_w, surf_h, 24,
 						  htonl(0xFF000000),
 						  htonl(0x00FF0000),
-						  htonl(0x0000FF00), 0);
+						  htonl(0x0000FF00), 0x0);
 	if (me->frame->surface == NULL)
 		/* FIXME */
 		return -1;
@@ -152,7 +153,6 @@ resizePlayer(ffmpegPlayer *me)
 #else
 	me->surface = NULL;
 #endif
-
 #endif
 
 	return 0;
@@ -162,7 +162,6 @@ static void *
 drawVideoThread(void *data)
 {
 	ffmpegPlayer *me = data;
-	int rc;
 
 	AG_ObjectLock(me);
 
@@ -171,26 +170,19 @@ drawVideoThread(void *data)
 			SDL_ffmpegGetVideoFrame(me->file, me->frame);
 
 		uint64_t sync = getSync(me);
+		uint64_t pts = me->frame->pts;
 
-		if (me->frame->pts > sync) {
-			struct timeval now;		/* usec: microseconds */
-			struct timespec timeout;	/* nsec: nanoseconds */
-
-			gettimeofday(&now, NULL);
-			timeout.tv_nsec = now.tv_usec*1000 + (me->frame->pts - sync)*1000000;
-			timeout.tv_sec = now.tv_sec + (timeout.tv_nsec / 1000000000);
-			timeout.tv_nsec %= 1000000000;
-
-			rc = AG_CondTimedWait(&me->video_cond, &AGOBJECT(me)->lock, &timeout);
-			if (rc == 0) {
-				/* FIXME */
-				break;
-			} else if (rc != ETIMEDOUT && rc != EINTR) {
+		if (pts >= sync) {
+			AG_ObjectUnlock(me);
+			/* condition variable waiting may be faster, test with 500mhz */
+			AG_Delay(pts - sync);
+			AG_ObjectLock(me);
+			if (me->file == NULL) {
 				/* FIXME */
 				break;
 			}
 
-			if (me->frame->pts > getSync(me))
+			if (pts > getSync(me))
 				continue;
 
 			if (me->frame->overlay != NULL) {
@@ -215,8 +207,10 @@ drawVideoThread(void *data)
 
 				AG_Redraw(AGWIDGET(me));
 			}
+		} else {
+			/* frame is skipped */
+			DEBUG("skip frame: %lums late", sync - me->frame->pts);
 		}
-		/* else: frame is skipped */
 
 		me->frame->ready = 0;
 	}
@@ -228,6 +222,7 @@ drawVideoThread(void *data)
 static void
 audioCallback(void *data, Uint8 *stream, int length)
 {
+	/* TODO: try to use a dedicated audio mutex */
 	ffmpegPlayer *me = data;
 	SDL_ffmpegAudioFrame *frame;
 
@@ -350,10 +345,12 @@ ffmpegPlayerLoad(ffmpegPlayer *me, const char *path)
 
 	if (me->file) {
 		SDL_ffmpegFree(me->file);
-		
+
 		/* shut down video draw thread */
-		AG_CondSignal(&me->video_cond);
+		me->file = NULL;
+		AG_ObjectUnlock(me);
 		AG_ThreadJoin(me->video_drawThread, NULL);
+		AG_ObjectLock(me);
 	}
 
 	me->file = SDL_ffmpegOpen(path);
@@ -380,9 +377,11 @@ ffmpegPlayerLoad(ffmpegPlayer *me, const char *path)
 		return -1;
 	}
 
-	if (AG_ThreadCreate(&me->video_drawThread, drawVideoThread, me))
+	if (AG_ThreadCreate(&me->video_drawThread, drawVideoThread, me)) {
 		/* FIXME */
+		AG_ObjectUnlock(me);
 		return -1;
+	}
 
 	AG_ObjectUnlock(me);
 	return 0;
@@ -471,7 +470,6 @@ Init(void *obj)
 	if (me->frame == NULL)
 		/* FIXME */
 		return;
-	AG_CondInit(&me->video_cond);
 
 	me->playing = 0;
 	me->sync = 0;
@@ -482,6 +480,8 @@ static void
 Destroy(void *obj)
 {
 	ffmpegPlayer *me = obj;
+
+	AG_ObjectLock(me);
 
 	if (me->surface_id != -1)
 		AG_WidgetUnmapSurface(AGWIDGET(me), me->surface_id);
@@ -494,14 +494,15 @@ Destroy(void *obj)
 		SDL_ffmpegFree(me->file);
 		me->file = NULL;
 
+		AG_ObjectUnlock(me);
 		/* shut down video draw thread */
-		AG_CondSignal(&me->video_cond);
 		AG_ThreadJoin(me->video_drawThread, NULL);
-		AG_CondDestroy(&me->video_cond);
+		AG_ObjectLock(me);
 	}
 
 	/* shut down audio fill thread: it watches for me->file == NULL */
 	AG_CondSignal(&me->audio_cond);
+	AG_ObjectUnlock(me);
 	AG_ThreadJoin(me->audio_fillThread, NULL);
 	AG_CondDestroy(&me->audio_cond);
 
