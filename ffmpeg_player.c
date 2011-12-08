@@ -96,6 +96,8 @@ resizePlayer(ffmpegPlayer *me)
 	if (me->surface_id != -1)
 		AG_WidgetUnmapSurface(AGWIDGET(me), me->surface_id);
 
+	me->frame->ready = 0;
+
 	if (me->frame->surface != NULL)
 		SDL_FreeSurface(me->frame->surface);
 	if (me->frame->overlay != NULL)
@@ -158,6 +160,7 @@ resizePlayer(ffmpegPlayer *me)
 	return 0;
 }
 
+/* TODO: try to use higher priority for this thread */
 static void *
 drawVideoThread(void *data)
 {
@@ -182,20 +185,22 @@ drawVideoThread(void *data)
 				break;
 			}
 
-			if (pts > getSync(me))
+			if (!me->frame->ready || pts > getSync(me))
 				continue;
 
 			if (me->frame->overlay != NULL) {
-				int frame_x = (AGWIDGET(me)->w - me->frame->overlay->w) / 2;
-				int frame_y = (AGWIDGET(me)->h - me->frame->overlay->h) / 2;
+				if (AG_WidgetVisible(me)) {
+					int frame_x = (AGWIDGET(me)->w - me->frame->overlay->w) / 2;
+					int frame_y = (AGWIDGET(me)->h - me->frame->overlay->h) / 2;
 
-				SDL_Rect rect = {
-					.x = AGWIDGET(me)->rView.x1 + frame_x,
-					.y = AGWIDGET(me)->rView.y1 + frame_y,
-					.w = me->frame->overlay->w,
-					.h = me->frame->overlay->h
-				};
-				SDL_DisplayYUVOverlay(me->frame->overlay, &rect);
+					SDL_Rect rect = {
+						.x = AGWIDGET(me)->rView.x1 + frame_x,
+						.y = AGWIDGET(me)->rView.y1 + frame_y,
+						.w = me->frame->overlay->w,
+						.h = me->frame->overlay->h
+					};
+					SDL_DisplayYUVOverlay(me->frame->overlay, &rect);
+				}
 			} else if (me->frame->surface != NULL) {
 #ifdef USE_SDL_SHADOWSURFACE
 				AG_WidgetUpdateSurface(AGWIDGET(me), me->surface_id);
