@@ -33,6 +33,7 @@
 
 	/* in ag_sdl_aux.c */
 AG_Surface *AG_SDL_ShadowSurface(SDL_Surface *ss);
+void AG_SDL_ShadowSurfaceFree(AG_Surface *s);
 
 /* returns the current position the file should be at */
 static uint64_t
@@ -115,9 +116,6 @@ resizePlayer(ffmpegPlayer *me)
 		me->disp_h = FLOOR_THREE(widget_h);
 	}
 
-	if (me->surface_id != -1)
-		AG_WidgetUnmapSurface(AGWIDGET(me), me->surface_id);
-
 #ifndef USE_OVERLAY
 	for (int i = 0; i < FFMPEGPLAYER_BUFSIZE; i++) {
 		SDL_ffmpegVideoFrame *frame = me->videoFrame[i];
@@ -134,21 +132,6 @@ resizePlayer(ffmpegPlayer *me)
 			/* FIXME */
 			return -1;
 
-#ifdef USE_SDL_SHADOWSURFACE
-		/* FIXME: do this when required */
-		me->surface = AG_SDL_ShadowSurface(frame->surface);
-		if (me->surface == NULL)
-			/* FIXME */
-			return -1;
-
-		me->surface_id = AG_WidgetMapSurfaceNODUP(AGWIDGET(me), me->surface);
-		if (me->surface_id == -1)
-			/* FIXME */
-			return -1;
-#else
-		me->surface = NULL;
-#endif
-
 		SDL_ffmpegGetVideoFrame(me->file, frame);
 	}
 	me->curVideoFrame = 0;
@@ -156,12 +139,6 @@ resizePlayer(ffmpegPlayer *me)
 
 	return 0;
 }
-
-/*
-improvements:
- * distinct mutex for audio buffer: allows callback to be invoked regardless of video draw --> buffer underruns --> increase audio buffer
- * video buffer: filled during delay in drawVideoThread
- */
 
 static void *
 drawVideoThread(void *data)
@@ -196,6 +173,7 @@ drawVideoThread(void *data)
 			if (pts > getSync(me))
 				continue;
 
+#ifdef USE_OVERLAY
 			if (frame->overlay != NULL) {
 				if (AG_WidgetVisible(me)) {
 					int frame_x = (AGWIDGET(me)->w - me->disp_w) / 2;
@@ -209,18 +187,26 @@ drawVideoThread(void *data)
 					};
 					SDL_DisplayYUVOverlay(frame->overlay, &rect);
 				}
-			} else if (frame->surface != NULL) {
+			}
+#else
+			if (frame->surface != NULL) {
 #ifdef USE_SDL_SHADOWSURFACE
-				/* FIXME: Get AG_Surface */
-				AG_WidgetUpdateSurface(AGWIDGET(me), me->surface_id);
+				if (me->surface != NULL)
+					AG_SDL_ShadowSurfaceFree(me->surface);
+				me->surface = AG_SDL_ShadowSurface(frame->surface);
 #else
 				if (me->surface != NULL)
 					AG_SurfaceFree(me->surface);
 				me->surface = AG_SurfaceFromSDL(frame->surface);
 #endif
+				if (me->surface == NULL) {
+					/* FIXME */
+					break;
+				}
 
 				AG_Redraw(AGWIDGET(me));
 			}
+#endif
 		} else {
 			/* frame is skipped */
 			DEBUG("skip frame: %lums late", sync - frame->pts);
@@ -535,7 +521,6 @@ Init(void *obj)
 
 	me->screen = NULL;
 	me->surface = NULL;
-	me->surface_id = -1;
 
 	memset(me->audioFrame, 0, sizeof(me->audioFrame));
 	me->curAudioFrame = 0;
@@ -568,9 +553,6 @@ Destroy(void *obj)
 
 	AG_ObjectLock(me);
 
-	if (me->surface_id != -1)
-		AG_WidgetUnmapSurface(AGWIDGET(me), me->surface_id);
-
 	if (me->file) {
 		SDL_ffmpegFree(me->file);
 		me->file = NULL;
@@ -602,27 +584,32 @@ Destroy(void *obj)
 		if (me->audioFrame[i] != NULL)
 			SDL_ffmpegFreeAudioFrame(me->audioFrame[i]);
 	}
+
+#ifndef USE_OVERLAY
+	if (me->surface != NULL)
+#ifdef USE_SDL_SHADOWSURFACE
+		AG_SDL_ShadowSurfaceFree(me->surface);
+#else
+		AG_SurfaceFree(me->surface);
+#endif
+#endif
 }
 
 static void
 Draw(void *p)
 {
 	ffmpegPlayer *me = p;
-	int frame_x, frame_y;
 	SDL_ffmpegVideoFrame *frame = me->videoFrame[me->curVideoFrame];
+	int frame_x, frame_y;
 
 	if (me->file == NULL || frame == NULL)
 		return;
 
-	if (frame->overlay != NULL) {
-		frame_x = (AGWIDGET(me)->w - frame->overlay->w) / 2;
-		frame_y = (AGWIDGET(me)->h - frame->overlay->h) / 2;
-	} else if (frame->surface != NULL) {
-		frame_x = (AGWIDGET(me)->w - frame->surface->w) / 2;
-		frame_y = (AGWIDGET(me)->h - frame->surface->h) / 2;
-	} else {
+	if (frame->overlay == NULL && frame->surface == NULL)
 		return;
-	}
+
+	frame_x = (AGWIDGET(me)->w - me->disp_w) / 2;
+	frame_y = (AGWIDGET(me)->h - me->disp_h) / 2;
 
 	if (frame_x || frame_y) {
 		AG_Rect rect = {
@@ -634,18 +621,10 @@ Draw(void *p)
 		AG_DrawRectFilled(AGWIDGET(me), rect, AG_ColorRGB(0, 0, 0));
 	}
 
-	if (frame->overlay != NULL) {
-		/* overlay is displayed in drawVideoThread */
-	} else if (frame->surface != NULL) {
-#ifdef USE_SDL_SHADOWSURFACE
-		AG_WidgetBlitSurface(AGWIDGET(me), me->surface_id,
-				     frame_x, frame_y);
-#else
-		if (me->surface != NULL)
-			AG_WidgetBlit(AGWIDGET(me), me->surface,
-				      frame_x, frame_y);
+#ifndef USE_OVERLAY
+	if (me->surface != NULL)
+		AG_WidgetBlit(AGWIDGET(me), me->surface, frame_x, frame_y);
 #endif
-	}
 }
 
 AG_WidgetClass ffmpegPlayerClass = {

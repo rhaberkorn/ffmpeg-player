@@ -17,7 +17,6 @@ typedef struct ffmpeg_player {
 
 	SDL_Surface *screen;
 	AG_Surface *surface;
-	int surface_id;
 
 	SDL_ffmpegFile *file;
 
