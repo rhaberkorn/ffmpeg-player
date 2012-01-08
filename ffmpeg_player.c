@@ -28,7 +28,7 @@
 
 #ifdef USE_OVERLAY
 /* SDL does scaling and it's optimized for 2x */
-#define SCALE_FLOOR(X) ((X) & ~02)
+#define SCALE_FLOOR(X) ((X) & ~01)
 #else
 /* SDL_ffmpeg does scaling */
 #define SCALE_FLOOR(X) ((X) & ~03)
@@ -156,11 +156,10 @@ drawVideoThread(void *data)
 	for (;;) {
 		SDL_ffmpegVideoFrame *frame = me->videoFrame[me->curVideoFrame];
 
-		while (!frame->ready) {
-			DEBUG("Video buffer underrun! Waiting 10ms...");
-			AG_ObjectUnlock(me);
-			AG_Delay(10);
-			AG_ObjectLock(me);
+		if (!frame->ready) {
+			DEBUG("Video buffer underrun!");
+			/* video buffer fill thread won't handle the current frame */
+			SDL_ffmpegGetVideoFrame(me->file, frame);
 		}
 
 		uint64_t sync = getSync(me);
