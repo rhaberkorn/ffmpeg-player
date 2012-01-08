@@ -26,7 +26,13 @@
 #define DEBUG(FMT, ...) do {} while(0)
 #endif
 
-#define FLOOR_THREE(X) ((X) & ~03)
+#ifdef USE_OVERLAY
+/* SDL does scaling and it's optimized for 2x */
+#define SCALE_FLOOR(X) ((X) & ~02)
+#else
+/* SDL_ffmpeg does scaling */
+#define SCALE_FLOOR(X) ((X) & ~03)
+#endif
 
 #define RR_INC(CUR, SIZE) \
 	((CUR) = ((CUR) + 1) % (SIZE))
@@ -105,15 +111,15 @@ resizePlayer(ffmpegPlayer *me)
 		aspect = (float)film_h / film_w;
 
 		if (widget_w * aspect > widget_h) {
-			me->disp_w = FLOOR_THREE((int)(widget_h / aspect));
-			me->disp_h = FLOOR_THREE(widget_h);
+			me->disp_w = SCALE_FLOOR((int)(widget_h / aspect));
+			me->disp_h = SCALE_FLOOR(widget_h);
 		} else {
-			me->disp_w = FLOOR_THREE(widget_w);
-			me->disp_h = FLOOR_THREE((int)(widget_w * aspect));
+			me->disp_w = SCALE_FLOOR(widget_w);
+			me->disp_h = SCALE_FLOOR((int)(widget_w * aspect));
 		}
 	} else {
-		me->disp_w = FLOOR_THREE(widget_w);
-		me->disp_h = FLOOR_THREE(widget_h);
+		me->disp_w = SCALE_FLOOR(widget_w);
+		me->disp_h = SCALE_FLOOR(widget_h);
 	}
 
 #ifndef USE_OVERLAY
