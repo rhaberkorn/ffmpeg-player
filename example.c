@@ -32,7 +32,7 @@ main(int argc, char *argv[])
 		return 1;
 	}
 
-	sdlFlags = SDL_RESIZABLE | SDL_HWSURFACE;
+	sdlFlags = SDL_RESIZABLE | SDL_HWSURFACE | SDL_DOUBLEBUF;
 	if ((screen = SDL_SetVideoMode(640, 480, 32, sdlFlags)) == NULL) {
 		fprintf(stderr, "SDL_SetVideoMode: %s\n", SDL_GetError());
 		goto fail;

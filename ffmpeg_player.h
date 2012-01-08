@@ -20,10 +20,13 @@ typedef struct ffmpeg_player {
 	int surface_id;
 
 	SDL_ffmpegFile *file;
-	SDL_ffmpegVideoFrame *frame;
-	AG_Thread video_drawThread;
-
 #define FFMPEGPLAYER_BUFSIZE 10
+	SDL_ffmpegVideoFrame *videoFrame[FFMPEGPLAYER_BUFSIZE];
+	int curVideoFrame;
+	AG_Thread video_drawThread;
+	AG_Thread video_fillThread;
+	AG_Cond video_cond;
+
 	SDL_ffmpegAudioFrame *audioFrame[FFMPEGPLAYER_BUFSIZE];
 	int curAudioFrame;
 	AG_Thread audio_fillThread;
