@@ -30,8 +30,6 @@
 
 #define RR_INC(CUR, SIZE) \
 	((CUR) = ((CUR) + 1) % (SIZE))
-#define RR_LAST(CUR, SIZE) \
-	(((CUR) > 0 ? (CUR) : (SIZE)) - 1)
 
 	/* in ag_sdl_aux.c */
 AG_Surface *AG_SDL_ShadowSurface(SDL_Surface *ss);
@@ -97,10 +95,6 @@ resizePlayer(ffmpegPlayer *me)
 	/* resizePlayer may be called before any size allocation */
 	int widget_w = AGWIDGET(me)->w > 0 ? AGWIDGET(me)->w : me->w;
 	int widget_h = AGWIDGET(me)->h > 0 ? AGWIDGET(me)->h : me->h;
-	int surf_w, surf_h;
-
-	if (me->surface_id != -1)
-		AG_WidgetUnmapSurface(AGWIDGET(me), me->surface_id);
 
 	if (me->flags & AG_FFMPEGPLAYER_KEEPRATIO) {
 		int film_w, film_h;
@@ -110,37 +104,29 @@ resizePlayer(ffmpegPlayer *me)
 		aspect = (float)film_h / film_w;
 
 		if (widget_w * aspect > widget_h) {
-			surf_w = FLOOR_THREE((int)(widget_h / aspect));
-			surf_h = FLOOR_THREE(widget_h);
+			me->disp_w = FLOOR_THREE((int)(widget_h / aspect));
+			me->disp_h = FLOOR_THREE(widget_h);
 		} else {
-			surf_w = FLOOR_THREE(widget_w);
-			surf_h = FLOOR_THREE((int)(widget_w * aspect));
+			me->disp_w = FLOOR_THREE(widget_w);
+			me->disp_h = FLOOR_THREE((int)(widget_w * aspect));
 		}
 	} else {
-		surf_w = FLOOR_THREE(widget_w);
-		surf_h = FLOOR_THREE(widget_h);
+		me->disp_w = FLOOR_THREE(widget_w);
+		me->disp_h = FLOOR_THREE(widget_h);
 	}
 
+	if (me->surface_id != -1)
+		AG_WidgetUnmapSurface(AGWIDGET(me), me->surface_id);
+
+#ifndef USE_OVERLAY
 	for (int i = 0; i < FFMPEGPLAYER_BUFSIZE; i++) {
 		SDL_ffmpegVideoFrame *frame = me->videoFrame[i];
 
 		if (frame->surface != NULL)
 			SDL_FreeSurface(frame->surface);
-		if (frame->overlay != NULL)
-			SDL_FreeYUVOverlay(frame->overlay);
 
-		/* FIXME: choose surface type depending on movie stream */
-#ifdef USE_OVERLAY
-		frame->overlay = SDL_CreateYUVOverlay(surf_w, surf_h,
-						      SDL_YUY2_OVERLAY, me->screen);
-		if (frame->overlay == NULL)
-			/* FIXME */
-			return -1;
-		DEBUG("frame: %p, overlay: %s", frame,
-		      frame->overlay->hw_overlay ? "hardware" : "software");
-#else
 		frame->surface = SDL_CreateRGBSurface(SDL_HWSURFACE,
-						      surf_w, surf_h, 24,
+						      me->disp_w, me->disp_h, 24,
 						      htonl(0xFF000000),
 						      htonl(0x00FF0000),
 						      htonl(0x0000FF00), 0x0);
@@ -162,11 +148,11 @@ resizePlayer(ffmpegPlayer *me)
 #else
 		me->surface = NULL;
 #endif
-#endif
 
 		SDL_ffmpegGetVideoFrame(me->file, frame);
 	}
 	me->curVideoFrame = 0;
+#endif
 
 	return 0;
 }
@@ -212,14 +198,14 @@ drawVideoThread(void *data)
 
 			if (frame->overlay != NULL) {
 				if (AG_WidgetVisible(me)) {
-					int frame_x = (AGWIDGET(me)->w - frame->overlay->w) / 2;
-					int frame_y = (AGWIDGET(me)->h - frame->overlay->h) / 2;
+					int frame_x = (AGWIDGET(me)->w - me->disp_w) / 2;
+					int frame_y = (AGWIDGET(me)->h - me->disp_h) / 2;
 
 					SDL_Rect rect = {
 						.x = AGWIDGET(me)->rView.x1 + frame_x,
 						.y = AGWIDGET(me)->rView.y1 + frame_y,
-						.w = frame->overlay->w,
-						.h = frame->overlay->h
+						.w = me->disp_w,
+						.h = me->disp_h
 					};
 					SDL_DisplayYUVOverlay(frame->overlay, &rect);
 				}
@@ -265,8 +251,8 @@ fillVideoBufferThread(void *data)
 			break;
 
 		/* fill empty spaces in audio buffer */
-		for (int i = me->curVideoFrame;
-		     i != RR_LAST(me->curVideoFrame, FFMPEGPLAYER_BUFSIZE);
+		for (int i = (me->curVideoFrame+1) % FFMPEGPLAYER_BUFSIZE;
+		     i != me->curVideoFrame;
 		     RR_INC(i, FFMPEGPLAYER_BUFSIZE)) {
 			/* protect against spurious wakeups */
 			if (me->videoFrame[i] == NULL)
@@ -333,8 +319,8 @@ fillAudioBufferThread(void *data)
 			break;
 
 		/* fill empty spaces in audio buffer */
-		for (int i = me->curAudioFrame;
-		     i != RR_LAST(me->curAudioFrame, FFMPEGPLAYER_BUFSIZE);
+		for (int i = (me->curAudioFrame+1) % FFMPEGPLAYER_BUFSIZE;
+		     i != me->curAudioFrame;
 		     RR_INC(i, FFMPEGPLAYER_BUFSIZE)) {
 			/* protect against spurious wakeups */
 			if (me->audioFrame[i] == NULL)
@@ -396,6 +382,35 @@ initPlayerAudio(ffmpegPlayer *me)
 	return 0;
 }
 
+static int
+initPlayerVideo(ffmpegPlayer *me)
+{
+#ifdef USE_OVERLAY
+	int film_w, film_h;
+
+	SDL_ffmpegGetVideoSize(me->file, &film_w, &film_h);
+
+	for (int i = 0; i < FFMPEGPLAYER_BUFSIZE; i++) {
+		SDL_ffmpegVideoFrame *frame = me->videoFrame[i];
+
+		if (frame->overlay != NULL)
+			SDL_FreeYUVOverlay(frame->overlay);
+
+		frame->overlay = SDL_CreateYUVOverlay(film_w, film_h,
+						      SDL_YUY2_OVERLAY, me->screen);
+		if (frame->overlay == NULL)
+			/* FIXME */
+			return -1;
+		DEBUG("frame: %p, overlay: %s", frame,
+		      frame->overlay->hw_overlay ? "hardware" : "software");
+
+		SDL_ffmpegGetVideoFrame(me->file, frame);
+	}
+#endif
+
+	return 0;
+}
+
 int
 ffmpegPlayerLoad(ffmpegPlayer *me, const char *path)
 {
@@ -424,6 +439,12 @@ ffmpegPlayerLoad(ffmpegPlayer *me, const char *path)
 	SDL_ffmpegSelectAudioStream(me->file, 0);
 
 	if (initPlayerAudio(me)) {
+		/* FIXME */
+		AG_ObjectUnlock(me);
+		return -1;
+	}
+
+	if (initPlayerVideo(me)) {
 		/* FIXME */
 		AG_ObjectUnlock(me);
 		return -1;

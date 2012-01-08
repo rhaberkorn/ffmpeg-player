@@ -20,6 +20,8 @@ typedef struct ffmpeg_player {
 	int surface_id;
 
 	SDL_ffmpegFile *file;
+
+	int disp_w, disp_h;		/* size of frame on screen */
 #define FFMPEGPLAYER_BUFSIZE 10
 	SDL_ffmpegVideoFrame *videoFrame[FFMPEGPLAYER_BUFSIZE];
 	int curVideoFrame;
