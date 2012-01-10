@@ -21,7 +21,7 @@ LDFLAGS += $(AGAR_LDFLAGS) $(SDL_LDFLAGS) $(SDLFFMPEG_LDFLAGS)
 all : example
 
 example : example.o ffmpeg_player.o ag_sdl_aux.o
-	$(CC) $(LDFLAGS) -o $@ $^
+	$(CC) -o $@ $^ $(LDFLAGS)
 
 clean :
 	$(RM) -f *.o example
