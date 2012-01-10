@@ -158,7 +158,6 @@ drawVideoThread(void *data)
 
 		if (!frame->ready) {
 			DEBUG("Video buffer underrun!");
-			/* video buffer fill thread won't handle the current frame */
 			SDL_ffmpegGetVideoFrame(me->file, frame);
 		}
 
@@ -242,9 +241,8 @@ fillVideoBufferThread(void *data)
 			break;
 
 		/* fill empty spaces in audio buffer */
-		for (int i = (me->curVideoFrame+1) % FFMPEGPLAYER_BUFSIZE;
-		     i != me->curVideoFrame;
-		     RR_INC(i, FFMPEGPLAYER_BUFSIZE)) {
+		int i = me->curVideoFrame;
+		do {
 			/* protect against spurious wakeups */
 			if (me->videoFrame[i] == NULL)
 				break;
@@ -253,7 +251,7 @@ fillVideoBufferThread(void *data)
 			if (!me->videoFrame[i]->ready)
 				/* fill frame with new data */
 				SDL_ffmpegGetVideoFrame(me->file, me->videoFrame[i]);
-		}
+		} while (RR_INC(i, FFMPEGPLAYER_BUFSIZE) != me->curVideoFrame);
 	}
 
 	AG_ObjectUnlock(me);
@@ -310,9 +308,8 @@ fillAudioBufferThread(void *data)
 			break;
 
 		/* fill empty spaces in audio buffer */
-		for (int i = (me->curAudioFrame+1) % FFMPEGPLAYER_BUFSIZE;
-		     i != me->curAudioFrame;
-		     RR_INC(i, FFMPEGPLAYER_BUFSIZE)) {
+		int i = me->curAudioFrame;
+		do {
 			/* protect against spurious wakeups */
 			if (me->audioFrame[i] == NULL)
 				break;
@@ -321,7 +318,7 @@ fillAudioBufferThread(void *data)
 			if (!me->audioFrame[i]->size)
 				/* fill frame with new data */
 				SDL_ffmpegGetAudioFrame(me->file, me->audioFrame[i]);
-		}
+		} while (RR_INC(i, FFMPEGPLAYER_BUFSIZE) != me->curAudioFrame);
 	}
 	/* FIXME: error handling */
 
