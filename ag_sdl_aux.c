@@ -38,3 +38,10 @@ out:
 	AG_PixelFormatFree(pf);
 	return (ds);
 }
+
+void
+AG_SDL_ShadowSurfaceFree(AG_Surface *s)
+{
+	s->pixels = NULL;
+	AG_SurfaceFree(s);
+}
