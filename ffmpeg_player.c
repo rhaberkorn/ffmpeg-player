@@ -3,7 +3,7 @@
 #include <string.h>
 #include <assert.h>
 #include <stdio.h>
-#include <arpa/inet.h>
+//#include <arpa/inet.h>
 #include <sys/time.h>
 #include <errno.h>
 
@@ -16,6 +16,12 @@
 #include <SDL/SDL_ffmpeg.h>
 
 #include "ffmpeg_player.h"
+
+#define htonl(X) \
+	(((((X) >> 24) & 0xFF) << 0) | \
+	 ((((X) >> 16) & 0xFF) << 8) | \
+	 ((((X) >> 8) & 0xFF) << 16) | \
+	 ((((X) >> 0) & 0xFF) << 24))
 
 #ifdef SDEBUG
 #define DEBUG(FMT, ...)	do {				\

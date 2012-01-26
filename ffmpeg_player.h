@@ -34,8 +34,6 @@ typedef struct ffmpeg_player {
 	uint64_t sync, offset;
 } ffmpegPlayer;
 
-__BEGIN_DECLS
-
 extern AG_WidgetClass ffmpegPlayerClass;
 
 #define AG_FFMPEGPLAYER_HFILL		(1 << 0)
@@ -54,7 +52,5 @@ enum ffmpegPlayerAction {
 	FFMPEGPLAYER_GETPAUSE
 };
 int ffmpegPlayerAction(ffmpegPlayer *me, enum ffmpegPlayerAction action);
-
-__END_DECLS
 
 #endif
